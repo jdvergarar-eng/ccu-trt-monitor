@@ -518,7 +518,8 @@ async function handleStatusCommand(message) {
 
         if (screenshotPath) {
             const media = MessageMedia.fromFilePath(screenshotPath);
-            await client.sendMessage(groupId, media, { caption: statusData.summary, sendSeen: false });
+            await client.sendMessage(groupId, media, { sendSeen: false });
+            await client.sendMessage(groupId, statusData.summary, { sendSeen: false });
             fs.unlinkSync(screenshotPath);
         } else {
             await client.sendMessage(groupId, statusData.summary, { sendSeen: false });
@@ -667,7 +668,7 @@ async function takeScreenshot(siteId) {
         
         await page.setViewport({ width: 1920, height: 1080 });
         await page.goto(url, { waitUntil: 'networkidle2', timeout: 15000 });
-        await page.waitForTimeout(3000);
+        await new Promise(r => setTimeout(r, 3000));
         await page.screenshot({ path: screenshotPath });
         await page.close();
         
