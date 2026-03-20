@@ -77,7 +77,7 @@ function loadConfigFile(configPath = 'config.txt') {
     };
     
     try {
-        const fullPath = path.resolve(__dirname, configPath);
+        const fullPath = path.resolve(__dirname, '..', configPath);
         if (!fs.existsSync(fullPath)) {
             console.error(`No se encontro: ${fullPath}`);
             return config;

@@ -31,6 +31,7 @@ from web.pages.dashboard import setup_dashboard_page
 from web.pages.centers import setup_centers_page
 from web.pages.analytics import setup_analytics_page
 from web.pages.settings import setup_settings_page
+from web.pages.centro import setup_centro_page
 
 
 def main():
@@ -62,6 +63,7 @@ def main():
     setup_centers_page()
     setup_analytics_page()
     setup_settings_page()
+    setup_centro_page()
 
     # Iniciar el MonitoringService (singleton)
     from core import get_config_manager, get_monitoring_service

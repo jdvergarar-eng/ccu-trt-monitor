@@ -1,7 +1,7 @@
 # Dashboard / Home page - Panel principal
 from datetime import datetime
 from nicegui import ui
-from ..shared import page_layout
+from ..shared import page_layout, site_slug
 from ..theme import Colors
 from ..auth import require_auth
 from core import get_monitoring_service, get_config_manager
@@ -247,6 +247,22 @@ def setup_dashboard_page():
             global_charts()
 
             if sites:
+                # Accesos directos Vista TV
+                with ui.card().classes('w-full ccu-card'):
+                    with ui.row().classes('w-full items-center justify-between'):
+                        with ui.row().classes('items-center gap-2'):
+                            ui.icon('tv').style(f'color:{Colors.ACTION_GREEN};font-size:1.2rem;')
+                            ui.label('Vista TV por Centro').style(
+                                f'font-size:0.95rem;font-weight:700;color:{Colors.TEXT_PRIMARY};'
+                            )
+                        with ui.row().classes('gap-2 flex-wrap'):
+                            for s in sites:
+                                ui.button(
+                                    s.name, icon='open_in_new',
+                                    on_click=lambda sl=site_slug(s.name): ui.navigate.to(
+                                        f'/centro/{sl}', new_tab=True)
+                                ).props('outline color=green-7 size=sm')
+
                 with ui.column().classes('w-full gap-4'):
                     for site in sites:
                         center = initial_centers.get(site.name, {
@@ -375,6 +391,12 @@ def _build_center_card(
                 f'color: {Colors.TEXT_PRIMARY};'
             )
             with ui.row().classes('items-center gap-2'):
+                ui.button(
+                    icon='tv',
+                    on_click=lambda s=site_name: ui.navigate.to(
+                        f'/centro/{site_slug(s)}', new_tab=True
+                    ),
+                ).props('flat round dense color=blue-7').tooltip('Abrir vista TV')
                 if monitoring:
                     ui.button(
                         icon='send',

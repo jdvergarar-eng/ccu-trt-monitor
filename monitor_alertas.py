@@ -1596,7 +1596,7 @@ def get_sites():
         return jsonify({"error": "Monitor aun no configurado. Esperando config.txt", "sites": []}), 503
 
     return jsonify({
-        "sites": [{"name": s["name"], "group_id": s["group_id"]} for s in CONFIG["sites"]]
+        "sites": [{"name": s["name"], "group_id": s.get("whatsapp_group_id") or s.get("group_id", "")} for s in CONFIG["sites"]]
     })
 
 
@@ -1624,7 +1624,10 @@ def check_and_send_daily_summary():
                 message = format_full_summary_message(site["name"], summary)
                 
                 # Usar WHATSAPP_GROUP_ID si esta disponible (mas rapido), sino GROUP_ID
-                group_id = site.get("whatsapp_group_id") or site["group_id"]
+                group_id = site.get("whatsapp_group_id") or site.get("group_id", "")
+                if not group_id:
+                    logger.warning(f"Sin group_id para {site['name']}, saltando resumen")
+                    continue
                 if send_text_to_group(group_id, message):
                     logger.info(f"Resumen {site['name']} enviado")
                     # Limpiar archivos más viejos que 60 días (retención)
@@ -1706,8 +1709,10 @@ def main():
             for site in CONFIG["sites"]:
                 site_name = site["name"]
                 # Usar WHATSAPP_GROUP_ID si está disponible (más rápido), sino GROUP_ID
-                group_id = site.get("whatsapp_group_id") or site["group_id"]
-                
+                group_id = site.get("whatsapp_group_id") or site.get("group_id", "")
+                if not group_id:
+                    logger.warning(f"Sin group_id para {site_name}, las alertas no se enviarán")
+
                 SUMMARY_MANAGER.check_and_reset_if_needed(site_name)
 
                 try:

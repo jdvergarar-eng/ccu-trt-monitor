@@ -1,7 +1,7 @@
 # Centers page - Gestión de centros de distribución
 import asyncio
 from nicegui import ui
-from ..shared import page_layout
+from ..shared import page_layout, site_slug
 from ..theme import Colors
 from ..auth import require_auth
 from core import (
@@ -130,6 +130,13 @@ def _center_row(site: SiteConfig, config_manager, refresh_fn):
                         existing_site=s,
                         whatsapp_groups=whatsapp_groups,
                     )
+
+                ui.button(
+                    'TV', icon='tv',
+                    on_click=lambda s=site: ui.navigate.to(
+                        f'/centro/{site_slug(s.name)}', new_tab=True
+                    )
+                ).props('outline color=blue-7 size=sm').tooltip('Abrir vista TV en nueva pestaña')
 
                 ui.button(
                     'Editar', icon='edit', on_click=edit_center

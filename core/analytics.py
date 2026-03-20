@@ -305,6 +305,42 @@ class AnalyticsService:
 
         return result
 
+    def get_monthly_trend_by_type(self, site_name: str, tipo_descarga: str) -> list:
+        """Retorna datos diarios del mes actual filtrados por tipo_descarga.
+
+        Returns: [(day: int, avg_trt_min: float, count: int), ...]
+        Días sin datos retornan (day, 0.0, 0).
+        """
+        import calendar
+
+        today = datetime.now(TIMEZONE).date() if TIMEZONE else datetime.now().date()
+        year, month = today.year, today.month
+        last_day = calendar.monthrange(year, month)[1]
+        safe_name = self._get_safe_name(site_name)
+
+        by_day: dict = {}
+
+        for day in range(1, last_day + 1):
+            date_str = f"{year:04d}-{month:02d}-{day:02d}"
+            filepath = self.data_dir / f"daily_data_{safe_name}_{date_str}.json"
+            if not filepath.exists():
+                continue
+            try:
+                data = self._load_file(filepath)
+                for d in data.get("dispatches", []):
+                    if d.get("tipo_descarga", "").upper() == tipo_descarga.upper():
+                        trt_min = d.get("trt_seconds", 0) / 60.0
+                        by_day.setdefault(day, []).append(trt_min)
+            except Exception:
+                continue
+
+        result = []
+        for day in range(1, last_day + 1):
+            trts = by_day.get(day, [])
+            avg = round(sum(trts) / len(trts), 1) if trts else 0.0
+            result.append((day, avg, len(trts)))
+        return result
+
     def get_heatmap_v2(self, site_name: str, days: int = 30, start_offset_days: int = 0) -> list:
         """Heatmap 7×8: matrix[display_weekday][block] = avg TRT en segundos.
 

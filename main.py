@@ -22,8 +22,8 @@ bot_process = None
 monitor_process = None
 
 # Flags de debug: True = muestra ventana de consola (util para depurar)
-DEBUG_BOT = True
-DEBUG_MONITOR = True
+DEBUG_BOT = False
+DEBUG_MONITOR = False
 
 
 def start_whatsapp_bot():

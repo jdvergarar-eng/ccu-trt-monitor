@@ -1,4 +1,6 @@
 # Shared layout - Sidebar + Header reutilizable para todas las páginas
+import re
+import unicodedata
 from datetime import datetime
 from nicegui import ui, app
 from pathlib import Path
@@ -127,6 +129,13 @@ def create_sidebar():
                     ui.label('Monitoreando TRT').classes('text-white text-xs')
 
     return drawer
+
+
+def site_slug(name: str) -> str:
+    """Convierte nombre de sitio a slug URL: 'Santiago Sur' → 'santiago-sur'"""
+    nfkd = unicodedata.normalize("NFKD", name)
+    ascii_str = nfkd.encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "-", ascii_str.lower()).strip("-")
 
 
 def page_layout(title: str, monitoring_service=None):
