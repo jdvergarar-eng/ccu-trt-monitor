@@ -1,0 +1,37 @@
+# =============================================================================
+# CONFIGURACION DE PUERTOS - CCU-TRT Monitor
+# =============================================================================
+#
+# Este archivo es INDEPENDIENTE de config.txt
+# Puedes cambiar los puertos aqui sin afectar la configuracion principal
+#
+# IMPORTANTE:
+# - Si no existe este archivo, se usan los puertos por defecto (5050, 5051)
+# - Este archivo se lee ANTES que config.txt
+# - Util para multiples instancias del sistema
+#
+# =============================================================================
+
+# Puerto del bot de WhatsApp (servidor HTTP Express)
+BOT_PORT=5050
+
+# Puerto del monitor de alertas (servidor HTTP Flask)
+MONITOR_PORT=5051
+
+# =============================================================================
+# EJEMPLOS PARA MULTIPLES INSTANCIAS:
+# =============================================================================
+#
+# Instancia 1 (default):
+#   BOT_PORT=5050
+#   MONITOR_PORT=5051
+#
+# Instancia 2:
+#   BOT_PORT=5052
+#   MONITOR_PORT=5053
+#
+# Instancia 3:
+#   BOT_PORT=5054
+#   MONITOR_PORT=5055
+#
+# =============================================================================

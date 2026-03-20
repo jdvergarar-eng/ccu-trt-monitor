@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node.js
+bot/node_modules/
+
+# WhatsApp session and cache (sensitive data)
+bot/whatsapp_session/
+bot/.wwebjs_cache/
+bot/temp/
+
+# Generated banners (temporary PNGs)
+banners/
+
+# Environment and secrets
+.env
+*.pem
+*.key
+
+# Logs and data
+logs/
+daily_data/
+*.log
+
+# Configuration (may contain sensitive data)
+config.txt
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# macOS
+.DS_Store
+
+# Temporary files
+*.tmp
+temp/
+
+# PyInstaller
+*.spec
+build/
+dist/
+
+# Claude
+.claude/
