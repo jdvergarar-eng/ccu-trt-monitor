@@ -33,11 +33,11 @@ TXT_MUT = Colors.TEXT_MUTED
 
 # Colores de series
 LAT_LINE   = '#1D4ED8'
-LAT_BAR    = '#3B82F6'
+LAT_BAR    = "#025C24"
 TRAS_LINE  = '#B91C1C'
-TRAS_BAR   = '#EF4444'
+TRAS_BAR   = "#025C24"
 INT_LINE   = '#7C3AED'
-INT_BAR    = '#A78BFA'
+INT_BAR    = "#025C24"
 UMBRAL_CLR = '#F59E0B'
 OVER_CLR   = '#DC2626'   # color de barra cuando supera umbral
 
@@ -140,7 +140,7 @@ def _chart_js(data, umbral: float, cl: str, cb: str, label_umbral: str) -> str:
         f'],'
         f'series:['
         # TRT → barras con color por valor
-        f'{{name:"TRT Promedio",type:"bar",yAxisIndex:0,data:{_json.dumps(avgs)},'
+        f'{{name:"TRT Promedio",type:"bar",yAxisIndex:0,color:"{cl}",data:{_json.dumps(avgs)},'
         f'itemStyle:{{color:{bar_color_fn},borderRadius:[4,4,0,0]}},'
         f'barMaxWidth:40,'
         f'markLine:{{silent:true,symbol:["none","none"],'
