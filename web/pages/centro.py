@@ -179,6 +179,42 @@ def _kpi(container, label: str, value: str, color: str):
     return lbl
 
 
+def _kpi_sm(container, label: str, value: str, color: str):
+    with container:
+        with ui.column().style('gap:3px;'):
+            ui.label(label).style(
+                f'font-size:0.78rem;font-weight:700;color:{TXT_MUT};'
+                'text-transform:uppercase;letter-spacing:0.1em;'
+            )
+            lbl = ui.label(value).style(
+                f'font-size:1.8rem;font-weight:800;color:{color};'
+                'line-height:1;font-variant-numeric:tabular-nums;'
+            )
+    return lbl
+
+
+def _tipo_pill(label: str, pct: float, color: str):
+    with ui.element('div').style(
+        f'display:inline-flex;align-items:center;gap:6px;'
+        f'background:{color}18;border:1px solid {color}55;'
+        f'border-radius:8px;padding:5px 12px;'
+    ):
+        ui.html(
+            f'<div style="width:9px;height:9px;border-radius:50%;'
+            f'background:{color};flex-shrink:0;"></div>'
+        )
+        with ui.column().style('gap:0;'):
+            ui.label(label).style(
+                f'font-size:0.68rem;font-weight:700;color:{color};'
+                'letter-spacing:0.12em;text-transform:uppercase;'
+            )
+            lbl = ui.label(f'{pct:.1f}%').style(
+                f'font-size:1.5rem;font-weight:800;color:{color};'
+                'line-height:1;font-variant-numeric:tabular-nums;'
+            )
+    return lbl
+
+
 def _chart_header(title: str, title_color: str, dot_color: str, umbral_txt: str):
     with ui.row().classes('w-full items-center justify-between').style('margin-bottom:8px;'):
         with ui.row().classes('items-center').style('gap:8px;'):
@@ -506,8 +542,11 @@ def setup_centro_page():
             t_now = live.get('trucks_in_plant', 0)
             a_now = live.get('alerts', 0)
             trucks_cache = {'list': live.get('trucks_list', [])}
+            today_by_type = analytics.get_today_by_type(site.name)
+            hist_by_type  = analytics.get_dispatches_by_type(site.name, days=30)
 
             with ui.row().classes('w-full').style('gap:12px;'):
+                # ── Ahora en Planta ──────────────────────────────────────────
                 with ui.card().classes('flex-1').style(
                     f'background:{CARD};border:1px solid {BORDER};border-radius:12px;'
                     f'box-shadow:0 1px 6px rgba(0,0,0,0.05);'
@@ -522,11 +561,29 @@ def setup_centro_page():
                             on_click=lambda: open_trucks(site.name, trucks_cache['list'], thr)
                         ).props('outline color=orange size=sm')
                         refs['trucks_btn'].set_visibility(bool(trucks_cache['list']))
+                    # Fila 1: datos en vivo
                     with ui.row().style('gap:40px;align-items:flex-end;'):
                         refs['trucks_lbl'] = _kpi(ui.element('span'), 'Camiones', str(t_now), TXT_P)
                         refs['alerts_lbl'] = _kpi(ui.element('span'), 'Alertas Activas', str(a_now),
                                                   RED if a_now > 0 else GREEN)
+                    ui.separator().style('margin:8px 0;')
+                    # Fila 2: acumulado del día
+                    with ui.row().style('gap:32px;align-items:flex-end;'):
+                        refs['day_disp_lbl']  = _kpi_sm(ui.element('span'), 'Despachos Día',
+                                                         str(today_by_type['total']), TXT_P)
+                        refs['day_alert_lbl'] = _kpi_sm(ui.element('span'), 'Alertas Día',
+                                                         str(today_by_type['critical']),
+                                                         RED if today_by_type['critical'] > 0 else GREEN)
+                    ui.separator().style('margin:8px 0;')
+                    # Fila 3: % por tipo hoy
+                    with ui.row().style('gap:10px;align-items:center;flex-wrap:wrap;'):
+                        refs['pct_lat_today']  = _tipo_pill('LATERAL',  today_by_type['pct_lateral'],  LAT_LINE)
+                        if show_tras:
+                            refs['pct_tras_today'] = _tipo_pill('TRASERA',  today_by_type['pct_trasera'], TRAS_LINE)
+                        if show_intra:
+                            refs['pct_int_today']  = _tipo_pill('INTERNA',  today_by_type['pct_interna'], INT_LINE)
 
+                # ── Histórico 30 días ────────────────────────────────────────
                 with ui.card().classes('flex-1').style(
                     f'background:{CARD};border:1px solid {BORDER};border-radius:12px;'
                     f'box-shadow:0 1px 6px rgba(0,0,0,0.05);'
@@ -542,6 +599,14 @@ def setup_centro_page():
                                                 str(kpis.get('total_dispatches', 0)), TXT_P)
                         refs['pct_lbl']  = _kpi(ui.element('span'), '% Críticos',
                                                 f'{pct:.1f}%', RED if pct > 20 else GREEN)
+                    ui.separator().style('margin:8px 0;')
+                    # % por tipo histórico
+                    with ui.row().style('gap:10px;align-items:center;flex-wrap:wrap;'):
+                        refs['pct_lat_hist']  = _tipo_pill('LATERAL',  hist_by_type['pct_lateral'],  LAT_LINE)
+                        if show_tras:
+                            refs['pct_tras_hist'] = _tipo_pill('TRASERA',  hist_by_type['pct_trasera'], TRAS_LINE)
+                        if show_intra:
+                            refs['pct_int_hist']  = _tipo_pill('INTERNA',  hist_by_type['pct_interna'], INT_LINE)
 
             # ── GRÁFICOS ──────────────────────────────────────────────────────
             refs['ind_lbl'] = _section_title(
@@ -625,6 +690,19 @@ def setup_centro_page():
                 f'font-size:3rem;font-weight:800;line-height:1;'
                 f'font-variant-numeric:tabular-nums;'
                 f'color:{RED if a > 0 else GREEN};')
+            # Acumulado del día + % por tipo
+            tbt = analytics.get_today_by_type(site.name)
+            refs['day_disp_lbl'].text  = str(tbt['total'])
+            refs['day_alert_lbl'].text = str(tbt['critical'])
+            refs['day_alert_lbl'].style(
+                f'font-size:1.8rem;font-weight:800;line-height:1;'
+                f'font-variant-numeric:tabular-nums;'
+                f'color:{RED if tbt["critical"] > 0 else GREEN};')
+            refs['pct_lat_today'].text = f'{tbt["pct_lateral"]:.1f}%'
+            if show_tras:
+                refs['pct_tras_today'].text = f'{tbt["pct_trasera"]:.1f}%'
+            if show_intra:
+                refs['pct_int_today'].text  = f'{tbt["pct_interna"]:.1f}%'
             refs['footer_lbl'].text = (
                 f'Última actualización: {n.strftime("%H:%M:%S")} · CCU-TRT Monitor')
 
@@ -662,5 +740,12 @@ def setup_centro_page():
                     True,
                 )
             refs['ind_lbl'].text = f'Indicadores Operacionales — {_month_year(datetime.now())}'
+            # % por tipo histórico
+            hbt = analytics.get_dispatches_by_type(site.name, days=30)
+            refs['pct_lat_hist'].text = f'{hbt["pct_lateral"]:.1f}%'
+            if show_tras:
+                refs['pct_tras_hist'].text = f'{hbt["pct_trasera"]:.1f}%'
+            if show_intra:
+                refs['pct_int_hist'].text  = f'{hbt["pct_interna"]:.1f}%'
 
         ui.timer(300, _charts)

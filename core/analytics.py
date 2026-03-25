@@ -237,6 +237,58 @@ class AnalyticsService:
             'critical': criticos,
         }
 
+    def get_today_by_type(self, site_name: str) -> dict:
+        """Despachos de hoy por tipo: totales, criticos y % de LATERAL/TRASERA/INTERNA."""
+        today = datetime.now(TIMEZONE).date() if TIMEZONE else datetime.now().date()
+        date_str = today.strftime("%Y-%m-%d")
+        safe_name = self._get_safe_name(site_name)
+        path = self.data_dir / f"daily_data_{safe_name}_{date_str}.json"
+
+        empty = {
+            'total': 0, 'critical': 0,
+            'LATERAL': 0, 'TRASERA': 0, 'INTERNA': 0,
+            'pct_lateral': 0.0, 'pct_trasera': 0.0, 'pct_interna': 0.0,
+        }
+        if not path.exists():
+            return empty
+
+        dispatches = self._load_file(path).get('dispatches', [])
+        if not dispatches:
+            return empty
+
+        counts = {'LATERAL': 0, 'TRASERA': 0, 'INTERNA': 0}
+        critical = 0
+        for d in dispatches:
+            tipo = d.get('tipo_descarga', '').upper()
+            if tipo in counts:
+                counts[tipo] += 1
+            if d.get('fue_critico', False):
+                critical += 1
+
+        total = sum(counts.values())
+        pcts = {k: round(v / total * 100, 1) if total > 0 else 0.0 for k, v in counts.items()}
+        return {
+            'total': total, 'critical': critical,
+            'LATERAL': counts['LATERAL'], 'TRASERA': counts['TRASERA'], 'INTERNA': counts['INTERNA'],
+            'pct_lateral': pcts['LATERAL'], 'pct_trasera': pcts['TRASERA'], 'pct_interna': pcts['INTERNA'],
+        }
+
+    def get_dispatches_by_type(self, site_name: str, days: int = 30, start_offset_days: int = 0) -> dict:
+        """Despachos en el período por tipo: conteos y % de LATERAL/TRASERA/INTERNA."""
+        dispatches = self._get_all_dispatches(site_name, days, start_offset_days)
+        counts = {'LATERAL': 0, 'TRASERA': 0, 'INTERNA': 0}
+        for d in dispatches:
+            tipo = d.get('tipo_descarga', '').upper()
+            if tipo in counts:
+                counts[tipo] += 1
+        total = sum(counts.values())
+        pcts = {k: round(v / total * 100, 1) if total > 0 else 0.0 for k, v in counts.items()}
+        return {
+            'total': total,
+            'LATERAL': counts['LATERAL'], 'TRASERA': counts['TRASERA'], 'INTERNA': counts['INTERNA'],
+            'pct_lateral': pcts['LATERAL'], 'pct_trasera': pcts['TRASERA'], 'pct_interna': pcts['INTERNA'],
+        }
+
     def get_today_hourly_data(self, site_name: str) -> dict:
         """Datos por hora del dia actual: {hora: {'count': N, 'avg_trt': M}}.
         Agrupa por hora de despacho (hora_despacho). Retorna las 24 horas.
