@@ -187,7 +187,7 @@ def _kpi_sm(container, label: str, value: str, color: str):
                 'text-transform:uppercase;letter-spacing:0.1em;'
             )
             lbl = ui.label(value).style(
-                f'font-size:1.8rem;font-weight:800;color:{color};'
+                f'font-size:3rem;font-weight:800;color:{color};'
                 'line-height:1;font-variant-numeric:tabular-nums;'
             )
     return lbl
@@ -209,7 +209,7 @@ def _tipo_pill(label: str, pct: float, color: str):
                 'letter-spacing:0.12em;text-transform:uppercase;'
             )
             lbl = ui.label(f'{pct:.1f}%').style(
-                f'font-size:1.5rem;font-weight:800;color:{color};'
+                f'font-size:3rem;font-weight:800;color:{color};'
                 'line-height:1;font-variant-numeric:tabular-nums;'
             )
     return lbl
@@ -685,7 +685,7 @@ def setup_centro_page():
             refs['day_disp_lbl'].text  = str(tbt['total'])
             refs['day_alert_lbl'].text = str(tbt['critical'])
             refs['day_alert_lbl'].style(
-                f'font-size:1.8rem;font-weight:800;line-height:1;'
+                f'font-size:3rem;font-weight:800;line-height:1;'
                 f'font-variant-numeric:tabular-nums;'
                 f'color:{RED if tbt["critical"] > 0 else GREEN};')
             refs['pct_lat_today'].text = f'{tbt["pct_lateral"]:.1f}%'
