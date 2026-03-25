@@ -194,24 +194,15 @@ def _kpi_sm(container, label: str, value: str, color: str):
 
 
 def _tipo_pill(label: str, pct: float, color: str):
-    with ui.element('div').style(
-        f'display:inline-flex;align-items:center;gap:6px;'
-        f'background:{color}18;border:1px solid {color}55;'
-        f'border-radius:8px;padding:5px 12px;'
-    ):
-        ui.html(
-            f'<div style="width:9px;height:9px;border-radius:50%;'
-            f'background:{color};flex-shrink:0;"></div>'
+    with ui.column().style('gap:4px;'):
+        ui.label(label).style(
+            f'font-size:0.9rem;font-weight:700;color:{color};'
+            'text-transform:uppercase;letter-spacing:0.1em;'
         )
-        with ui.column().style('gap:0;'):
-            ui.label(label).style(
-                f'font-size:0.68rem;font-weight:700;color:{color};'
-                'letter-spacing:0.12em;text-transform:uppercase;'
-            )
-            lbl = ui.label(f'{pct:.1f}%').style(
-                f'font-size:3rem;font-weight:800;color:{color};'
-                'line-height:1;font-variant-numeric:tabular-nums;'
-            )
+        lbl = ui.label(f'{pct:.1f}%').style(
+            f'font-size:3rem;font-weight:800;color:{color};'
+            'line-height:1;font-variant-numeric:tabular-nums;'
+        )
     return lbl
 
 
