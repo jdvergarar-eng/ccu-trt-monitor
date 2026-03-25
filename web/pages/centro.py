@@ -561,27 +561,20 @@ def setup_centro_page():
                             on_click=lambda: open_trucks(site.name, trucks_cache['list'], thr)
                         ).props('outline color=orange size=sm')
                         refs['trucks_btn'].set_visibility(bool(trucks_cache['list']))
-                    # Fila 1: datos en vivo
-                    with ui.row().style('gap:40px;align-items:flex-end;'):
-                        refs['trucks_lbl'] = _kpi(ui.element('span'), 'Camiones', str(t_now), TXT_P)
-                        refs['alerts_lbl'] = _kpi(ui.element('span'), 'Alertas Activas', str(a_now),
-                                                  RED if a_now > 0 else GREEN)
-                    ui.separator().style('margin:8px 0;')
-                    # Fila 2: acumulado del día
-                    with ui.row().style('gap:32px;align-items:flex-end;'):
+                    with ui.row().style('gap:28px;align-items:flex-end;flex-wrap:wrap;'):
+                        refs['trucks_lbl']    = _kpi(ui.element('span'), 'Camiones', str(t_now), TXT_P)
+                        refs['alerts_lbl']    = _kpi(ui.element('span'), 'Alertas Activas', str(a_now),
+                                                     RED if a_now > 0 else GREEN)
                         refs['day_disp_lbl']  = _kpi_sm(ui.element('span'), 'Despachos Día',
                                                          str(today_by_type['total']), TXT_P)
                         refs['day_alert_lbl'] = _kpi_sm(ui.element('span'), 'Alertas Día',
                                                          str(today_by_type['critical']),
                                                          RED if today_by_type['critical'] > 0 else GREEN)
-                    ui.separator().style('margin:8px 0;')
-                    # Fila 3: % por tipo hoy
-                    with ui.row().style('gap:10px;align-items:center;flex-wrap:wrap;'):
                         refs['pct_lat_today']  = _tipo_pill('LATERAL',  today_by_type['pct_lateral'],  LAT_LINE)
                         if show_tras:
-                            refs['pct_tras_today'] = _tipo_pill('TRASERA',  today_by_type['pct_trasera'], TRAS_LINE)
+                            refs['pct_tras_today'] = _tipo_pill('TRASERA', today_by_type['pct_trasera'], TRAS_LINE)
                         if show_intra:
-                            refs['pct_int_today']  = _tipo_pill('INTERNA',  today_by_type['pct_interna'], INT_LINE)
+                            refs['pct_int_today']  = _tipo_pill('INTERNA', today_by_type['pct_interna'], INT_LINE)
 
                 # ── Histórico 30 días ────────────────────────────────────────
                 with ui.card().classes('flex-1').style(
@@ -592,21 +585,18 @@ def setup_centro_page():
                         ui.icon('insights').style(f'color:{BLUE};font-size:1.3rem;')
                         ui.label('Histórico — Últimos 30 Días').style(
                             f'font-size:1.1rem;font-weight:700;color:{TXT_S};')
-                    with ui.row().style('gap:40px;align-items:flex-end;'):
+                    with ui.row().style('gap:28px;align-items:flex-end;flex-wrap:wrap;'):
                         refs['avg_lbl']  = _kpi(ui.element('span'), 'TRT Promedio',
                                                 _hhmm(kpis.get('avg_trt_min', 0)), BLUE)
                         refs['disp_lbl'] = _kpi(ui.element('span'), 'Despachos',
                                                 str(kpis.get('total_dispatches', 0)), TXT_P)
                         refs['pct_lbl']  = _kpi(ui.element('span'), '% Críticos',
                                                 f'{pct:.1f}%', RED if pct > 20 else GREEN)
-                    ui.separator().style('margin:8px 0;')
-                    # % por tipo histórico
-                    with ui.row().style('gap:10px;align-items:center;flex-wrap:wrap;'):
                         refs['pct_lat_hist']  = _tipo_pill('LATERAL',  hist_by_type['pct_lateral'],  LAT_LINE)
                         if show_tras:
-                            refs['pct_tras_hist'] = _tipo_pill('TRASERA',  hist_by_type['pct_trasera'], TRAS_LINE)
+                            refs['pct_tras_hist'] = _tipo_pill('TRASERA', hist_by_type['pct_trasera'], TRAS_LINE)
                         if show_intra:
-                            refs['pct_int_hist']  = _tipo_pill('INTERNA',  hist_by_type['pct_interna'], INT_LINE)
+                            refs['pct_int_hist']  = _tipo_pill('INTERNA', hist_by_type['pct_interna'], INT_LINE)
 
             # ── GRÁFICOS ──────────────────────────────────────────────────────
             refs['ind_lbl'] = _section_title(
