@@ -556,11 +556,11 @@ def setup_centro_page():
                         refs['trucks_lbl']    = _kpi(ui.element('span'), 'Camiones', str(t_now), TXT_P)
                         refs['alerts_lbl']    = _kpi(ui.element('span'), 'Alertas Activas', str(a_now),
                                                      RED if a_now > 0 else GREEN)
-                        refs['day_disp_lbl']  = _kpi_sm(ui.element('span'), 'Despachos Día',
-                                                         str(today_by_type['total']), TXT_P)
-                        refs['day_alert_lbl'] = _kpi_sm(ui.element('span'), 'Alertas Día',
-                                                         str(today_by_type['critical']),
-                                                         RED if today_by_type['critical'] > 0 else GREEN)
+                        refs['day_disp_lbl']  = _kpi(ui.element('span'), 'Despachos Día',
+                                                        str(today_by_type['total']), TXT_P)
+                        refs['day_alert_lbl'] = _kpi(ui.element('span'), 'Alertas Día',
+                                                        str(today_by_type['critical']),
+                                                        RED if today_by_type['critical'] > 0 else GREEN)
                         refs['pct_lat_today']  = _tipo_pill('LATERAL',  today_by_type['pct_lateral'],  LAT_LINE)
                         if show_tras:
                             refs['pct_tras_today'] = _tipo_pill('TRASERA', today_by_type['pct_trasera'], TRAS_LINE)
@@ -676,9 +676,8 @@ def setup_centro_page():
             refs['day_disp_lbl'].text  = str(tbt['total'])
             refs['day_alert_lbl'].text = str(tbt['critical'])
             refs['day_alert_lbl'].style(
-                f'font-size:3rem;font-weight:800;line-height:1;'
-                f'font-variant-numeric:tabular-nums;'
-                f'color:{RED if tbt["critical"] > 0 else GREEN};')
+                f'font-size:3rem;font-weight:800;color:{RED if tbt["critical"] > 0 else GREEN};'
+                f'line-height:1;font-variant-numeric:tabular-nums;')
             refs['pct_lat_today'].text = f'{tbt["pct_lateral"]:.1f}%'
             if show_tras:
                 refs['pct_tras_today'].text = f'{tbt["pct_trasera"]:.1f}%'
