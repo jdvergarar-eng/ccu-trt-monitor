@@ -211,23 +211,12 @@ class MonitoringService:
                 total_trucks += stats.get("total_trucks", 0)
                 total_alerts += alerts
 
-                if trucks and site.whatsapp_group_id:
-                    alerts_to_send.append({
-                        "site": site,
-                        "all_trucks": trucks,
-                        "threshold": threshold,
-                    })
-
             except Exception as e:
                 error_msg = str(e)
                 self.add_log("error", f"Error {site.name}: {error_msg[:50]}")
 
         with self._lock:
             self.last_update = datetime.now()
-
-        # Enviar alertas si corresponde
-        if alerts_to_send and self.bot_status == "connected" and self.alerts_enabled:
-            self.send_alerts_if_needed(alerts_to_send)
 
         if total_alerts > 0:
             self.add_log("warning", f"{total_alerts} alerta(s) detectada(s) - {total_trucks} camiones en planta")
@@ -297,20 +286,52 @@ class MonitoringService:
         return results
 
     def force_send_banner(self, site_name: str = None):
-        """Fuerza el envío de banners (limpia rate limiting)"""
+        """Fuerza el envío de banners directamente (sin rate limiting)"""
         self.add_log("info", f"Forzando envio de banner: {site_name or 'todos'}...")
-        with self._lock:
-            if site_name:
-                # Buscar el site por nombre para obtener su referer_id
-                site = next((s for s in self.config.sites if s.name == site_name), None)
-                if site:
-                    key = f"site_{site.referer_id}"
-                    self.sent_alerts.pop(key, None)
+
+        if not self.trt_client or not self.wa_client:
+            self.add_log("error", "Cliente TRT o WhatsApp no configurado")
+            return
+
+        for site in self.config.sites:
+            if site_name and site.name != site_name:
+                continue
+            if not site.whatsapp_group_id:
+                continue
+
+            try:
+                site_config = {
+                    "referer_id": site.referer_id,
+                    "db_name": site.db_name,
+                    "op_code": site.op_code,
+                    "cd_code": site.cd_code,
+                }
+                stats = self.trt_client.get_center_stats(site_config)
+                trucks = stats.get("trucks", [])
+                if not trucks:
+                    self.add_log("info", f"Sin camiones en {site.name}, banner no enviado")
+                    continue
+
+                threshold = site.umbral_minutes_lateral or site.umbral_minutes or 60
+                center_status = analyze_trucks_for_banner(site.name, trucks, threshold)
+                banner_path = make_banner_png(center_status)
+                summary_message = format_banner_summary_message(center_status)
+
+                success = self.wa_client.send_image(site.whatsapp_group_id, banner_path, summary_message)
+
+                if success:
+                    self.add_log("success", f"Banner forzado enviado: {site.name}")
                 else:
-                    self.sent_alerts.clear()
-            else:
-                self.sent_alerts.clear()
-        self.poll_all_sites()
+                    self.add_log("error", f"Error enviando banner forzado a {site.name}")
+
+                if banner_path and os.path.exists(banner_path):
+                    try:
+                        os.remove(banner_path)
+                    except Exception:
+                        pass
+
+            except Exception as e:
+                self.add_log("error", f"Error force-send {site.name}: {str(e)[:50]}")
 
     def get_centers_data(self) -> List[dict]:
         """Obtiene datos de centros formateados para la UI"""
