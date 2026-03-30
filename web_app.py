@@ -34,6 +34,23 @@ from web.pages.settings import setup_settings_page
 from web.pages.centro import setup_centro_page
 
 
+def _get_web_port(default: int = 8080) -> int:
+    """Lee WEB_PORT de ports.txt. Si no existe o falla, usa el default."""
+    ports_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ports.txt")
+    try:
+        with open(ports_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                if key.strip().upper() == "WEB_PORT":
+                    return int(value.strip())
+    except Exception:
+        pass
+    return default
+
+
 def main():
     """Punto de entrada principal para la version web"""
 
@@ -77,7 +94,7 @@ def main():
     ui.run(
         title="CCU-TRT Monitor",
         host="0.0.0.0",
-        port=8080,
+        port=_get_web_port(),
         favicon="assets/Logo_CCU.png",
         dark=False,
         storage_secret="ccu-trt-monitor-storage-secret",

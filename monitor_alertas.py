@@ -85,7 +85,8 @@ def load_ports_config(ports_file="ports.txt"):
     # Defaults
     ports = {
         "bot_port": 5050,
-        "monitor_port": 5051
+        "monitor_port": 5051,
+        "web_port": 8080
     }
 
     if not ports_path.exists():
@@ -106,6 +107,8 @@ def load_ports_config(ports_file="ports.txt"):
                         ports["bot_port"] = int(value)
                     elif key == "MONITOR_PORT":
                         ports["monitor_port"] = int(value)
+                    elif key == "WEB_PORT":
+                        ports["web_port"] = int(value)
     except Exception as e:
         logger.warning(f"Error leyendo ports.txt: {e}. Usando puertos por defecto.")
 
