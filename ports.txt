@@ -18,6 +18,9 @@ BOT_PORT=5050
 # Puerto del monitor de alertas (servidor HTTP Flask)
 MONITOR_PORT=5051
 
+# Puerto de la aplicacion web (NiceGUI - vista TV por centro)
+WEB_PORT=8080
+
 # =============================================================================
 # EJEMPLOS PARA MULTIPLES INSTANCIAS:
 # =============================================================================

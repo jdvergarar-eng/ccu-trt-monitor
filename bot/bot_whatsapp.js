@@ -24,7 +24,8 @@ const cheerio = require('cheerio');
 function loadPortsConfig(portsPath = 'ports.txt') {
     const ports = {
         botPort: 5050,
-        monitorPort: 5051
+        monitorPort: 5051,
+        webAppPort: 8080
     };
 
     try {
@@ -51,10 +52,11 @@ function loadPortsConfig(portsPath = 'ports.txt') {
 
                 if (keyTrim === 'BOT_PORT') ports.botPort = parseInt(value);
                 else if (keyTrim === 'MONITOR_PORT') ports.monitorPort = parseInt(value);
+                else if (keyTrim === 'WEB_PORT') ports.webAppPort = parseInt(value);
             }
         }
 
-        console.log(`Puertos configurados: Bot=${ports.botPort}, Monitor=${ports.monitorPort}`);
+        console.log(`Puertos configurados: Bot=${ports.botPort}, Monitor=${ports.monitorPort}, Web=${ports.webAppPort}`);
 
     } catch (error) {
         console.error('Error cargando ports.txt:', error.message);
@@ -159,15 +161,21 @@ const CONFIG = {
 
     // Puerto de la API de resumenes (desde ports.txt)
     monitorApiPort: PORTS_CONFIG.monitorPort,
-    
+
+    // Puerto de la app web - vista TV (desde ports.txt)
+    webAppPort: PORTS_CONFIG.webAppPort,
+
     // Numeros que activan el bot (se llenan automaticamente al conectar)
     botPhoneNumbers: [],
-    
+
     // Keywords para comando status
     triggerKeywords: ['status', 'estado', 'reporte', 'informe'],
-    
+
     // Keywords para comando resumen
     resumenKeywords: ['resumen'],
+
+    // Keywords para comando pizarra (vista TV del centro)
+    pizarraKeywords: ['pizarra'],
     
     // URL base del sistema TRT (para screenshots) - se sobreescribe con config.txt
     trtBaseUrl: SITES_CONFIG.baseUrl || 'http://192.168.55.79',
@@ -339,7 +347,7 @@ client.on('message_create', async (message) => {
     // Auto-detectar LID: si el mensaje tiene keywords del bot y hay un LID no reconocido
     if (!isBotMentioned && mentionedNumbers.length > 0) {
         const text = message.body.toLowerCase();
-        const hasAnyKeyword = [...CONFIG.triggerKeywords, ...CONFIG.resumenKeywords].some(kw => text.includes(kw));
+        const hasAnyKeyword = [...CONFIG.triggerKeywords, ...CONFIG.resumenKeywords, ...CONFIG.pizarraKeywords].some(kw => text.includes(kw));
         
         if (hasAnyKeyword) {
             // Buscar posibles LIDs (numeros largos que no son telefonos normales)
@@ -372,6 +380,13 @@ client.on('message_create', async (message) => {
         return;
     }
     
+    // Verificar comando pizarra (vista TV)
+    const hasPizarraKeyword = CONFIG.pizarraKeywords.some(kw => text.includes(kw));
+    if (hasPizarraKeyword) {
+        await handlePizarraCommand(message);
+        return;
+    }
+
     // Verificar comando status
     const hasStatusKeyword = CONFIG.triggerKeywords.some(kw => text.includes(kw));
     if (hasStatusKeyword) {
@@ -650,6 +665,104 @@ async function getStatusFromMonitor(siteId) {
         const now = new Date();
         const timeStr = now.toTimeString().split(' ')[0];
         return { summary: `*${site.name}*\n_Actualizacion: ${timeStr}_\n\n_Error obteniendo datos_` };
+    }
+}
+
+// =============================================================================
+// HELPER: SLUG DE SITIO (equivalente al Python site_slug en web/shared.py)
+// =============================================================================
+
+function siteSlug(name) {
+    const nfkd = name.normalize('NFKD');
+    const ascii = nfkd.replace(/[^\x00-\x7F]/g, '');
+    return ascii.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+// =============================================================================
+// COMANDO PIZARRA (vista TV del centro)
+// =============================================================================
+
+async function takePizarraScreenshot(siteName) {
+    const slug = siteSlug(siteName);
+    const url = `http://localhost:${CONFIG.webAppPort}/centro/${slug}`;
+    const screenshotPath = path.join(CONFIG.tempDir, `pizarra_${slug}_${Date.now()}.png`);
+
+    console.log(`[PIZARRA] Screenshot: ${url}`);
+
+    try {
+        const browser = await client.pupPage.browser();
+        const page = await browser.newPage();
+
+        await page.setViewport({ width: 1920, height: 1080 });
+        await page.goto(url, { waitUntil: 'networkidle2', timeout: 20000 });
+        await new Promise(r => setTimeout(r, 6000));
+        await page.screenshot({ path: screenshotPath });
+        await page.close();
+
+        return screenshotPath;
+    } catch (error) {
+        console.error('[PIZARRA] Error screenshot:', error.message);
+        return null;
+    }
+}
+
+async function handlePizarraCommand(message) {
+    const groupId = message.from;
+
+    try {
+        try {
+            const chat = await message.getChat();
+            await chat.sendStateTyping();
+        } catch (e) {}
+
+        console.log(`[PIZARRA] Grupo: ${groupId}`);
+
+        let site = null;
+
+        // Buscar por WHATSAPP_GROUP_ID configurado
+        site = SITES_CONFIG.sites.find(s => s.whatsappGroupId === groupId);
+
+        // Fallback: extraer nombre del mensaje (e.g. "@bot pizarra Santiago Sur")
+        if (!site) {
+            const keywords = CONFIG.pizarraKeywords.join('|');
+            const match = message.body.match(new RegExp(`(?:${keywords})\\s+(.+)`, 'i'));
+            if (match) {
+                const nameTry = match[1].trim();
+                site = SITES_CONFIG.sites.find(s =>
+                    s.name.toLowerCase() === nameTry.toLowerCase()
+                );
+            }
+        }
+
+        console.log(`[PIZARRA] Sitio: ${site ? site.name : 'ninguno'}`);
+
+        if (!site) {
+            await client.sendMessage(groupId,
+                'No se encontro sitio configurado para este grupo.\nVerifica que WHATSAPP_GROUP_ID este configurado en config.txt',
+                { sendSeen: false });
+            return;
+        }
+
+        const screenshotPath = await takePizarraScreenshot(site.name);
+
+        if (screenshotPath) {
+            const now = new Date();
+            const timeStr = now.toTimeString().split(' ')[0];
+            const media = MessageMedia.fromFilePath(screenshotPath);
+            await client.sendMessage(groupId, media,
+                { caption: `*${site.name}* — ${timeStr}`, sendSeen: false });
+            fs.unlinkSync(screenshotPath);
+        } else {
+            await client.sendMessage(groupId,
+                'Error al tomar screenshot del panel TV. Verifica que la app web este corriendo.',
+                { sendSeen: false });
+        }
+
+    } catch (error) {
+        console.error('[PIZARRA] Error:', error.message);
+        try {
+            await client.sendMessage(groupId, 'Error al procesar comando pizarra.', { sendSeen: false });
+        } catch (e) {}
     }
 }
 
