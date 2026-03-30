@@ -1464,14 +1464,15 @@ def format_banner_summary_message(status: CenterStatus) -> str:
 
 def format_dispatch_alert(site_name: str, patente: str, trt: timedelta) -> str:
     """Formatea el mensaje de despacho"""
+    now = datetime.now(TIMEZONE)
+    fecha_hora = now.strftime("%d/%m/%Y - %H:%M:%S")
     msg = (
-        f"*CAMION DESPACHADO* - ({site_name})\n"
-        "--------------------\n"
+        f"*CAMION DESPACHADO* - {site_name}\n"
+        f"{fecha_hora}\n"
+        f"\n"
         f"*Patente:* {patente}\n"
         f"*Estado:* Camion con tiempo critico despachado\n"
-        "--------------------\n"
         f"*TRT (Tiempo de Estadia Total):* {fmt_td(trt)}\n"
-        "--------------------\n"
     )
     return msg
 
