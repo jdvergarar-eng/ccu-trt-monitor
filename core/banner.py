@@ -92,6 +92,17 @@ def get_tipo_descarga(empresa: str) -> str:
     return "LATERAL"
 
 
+def get_tipo_descarga_for_site(empresa: str, umbral_trasera: int = 0, umbral_interna: int = 0) -> str:
+    """Como get_tipo_descarga pero respeta la configuracion del centro.
+    Si el centro no tiene configurado un tipo de carga (umbral=0), el camion es tratado como LATERAL."""
+    tipo = get_tipo_descarga(empresa)
+    if tipo == "INTERNA" and not umbral_interna:
+        return "LATERAL"
+    if tipo == "TRASERA" and not umbral_trasera:
+        return "LATERAL"
+    return tipo
+
+
 def classify_truck(tiempo: timedelta, umbral: timedelta) -> str:
     umbral_80 = umbral * 0.8
     umbral_130 = umbral * 1.3
@@ -491,7 +502,8 @@ def format_banner_summary_message(status: CenterStatus) -> str:
     return "\n".join(lines)
 
 
-def analyze_trucks_for_banner(site_name: str, trucks: list, umbral_minutes: int) -> CenterStatus:
+def analyze_trucks_for_banner(site_name: str, trucks: list, umbral_minutes: int,
+                              umbral_trasera: int = 0, umbral_interna: int = 0) -> CenterStatus:
     """
     Analiza los camiones y crea un CenterStatus para generar el banner.
 
@@ -499,6 +511,8 @@ def analyze_trucks_for_banner(site_name: str, trucks: list, umbral_minutes: int)
         site_name: Nombre del sitio/centro
         trucks: Lista de TruckInPlant del TRT API
         umbral_minutes: Umbral en minutos para el sitio
+        umbral_trasera: Umbral en minutos para carga trasera (0 = no configurado)
+        umbral_interna: Umbral en minutos para carga interna (0 = no configurado)
     """
     umbral = timedelta(minutes=umbral_minutes)
 
@@ -509,7 +523,7 @@ def analyze_trucks_for_banner(site_name: str, trucks: list, umbral_minutes: int)
     for truck in trucks:
         tiempo = timedelta(minutes=truck.time_in_plant_minutes)
         empresa = truck.company or ""
-        tipo_descarga = get_tipo_descarga(empresa)
+        tipo_descarga = get_tipo_descarga_for_site(empresa, umbral_trasera, umbral_interna)
         tipo_ingreso = truck.entry_type or ""
 
         if tiempo > max_tiempo:

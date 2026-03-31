@@ -856,10 +856,25 @@ def get_tipo_descarga(empresa: str) -> str:
     return "LATERAL"
 
 
+def get_tipo_descarga_for_site(empresa: str, umbral_trasera: int = 0, umbral_interna: int = 0) -> str:
+    """Como get_tipo_descarga pero respeta la configuracion del centro.
+    Si el centro no tiene configurado un tipo de carga (umbral=0), el camion es tratado como LATERAL."""
+    tipo = get_tipo_descarga(empresa)
+    if tipo == "INTERNA" and not umbral_interna:
+        return "LATERAL"
+    if tipo == "TRASERA" and not umbral_trasera:
+        return "LATERAL"
+    return tipo
+
+
 def get_umbral_para_camion(site: dict, empresa: str) -> timedelta:
     if "umbral_minutes" in site:
         return timedelta(minutes=site["umbral_minutes"])
-    tipo = get_tipo_descarga(empresa)
+    tipo = get_tipo_descarga_for_site(
+        empresa,
+        site.get("umbral_minutes_trasera", 0),
+        site.get("umbral_minutes_interna", 0),
+    )
     if tipo == "INTERNA":
         return timedelta(minutes=site.get("umbral_minutes_interna", site["umbral_minutes_lateral"]))
     elif tipo == "TRASERA":
@@ -1068,7 +1083,11 @@ def analyze_center_status(site: dict, rows: list) -> CenterStatus:
         
         empresa = (row.get("Empresa") or "").strip()
         umbral = get_umbral_para_camion(site, empresa)
-        tipo_descarga = get_tipo_descarga(empresa)
+        tipo_descarga = get_tipo_descarga_for_site(
+            empresa,
+            site.get("umbral_minutes_trasera", 0),
+            site.get("umbral_minutes_interna", 0),
+        )
         tipo_ingreso = (row.get("Tipo de Ingreso") or "").strip()
         
         if tiempo > max_tiempo:
@@ -1792,7 +1811,11 @@ def main():
                         if patente not in visible:
                             trt = camiones_en_planta[patente]["tiempo"]
                             empresa = camiones_en_planta[patente].get("empresa", "")
-                            tipo_descarga = get_tipo_descarga(empresa)
+                            tipo_descarga = get_tipo_descarga_for_site(
+                                empresa,
+                                site.get("umbral_minutes_trasera", 0),
+                                site.get("umbral_minutes_interna", 0),
+                            )
                             fue_critico = patente in camiones_criticos
 
                             # Registrar en el resumen (TODOS los camiones)
