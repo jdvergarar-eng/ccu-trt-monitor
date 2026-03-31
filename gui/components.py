@@ -2,7 +2,7 @@
 import customtkinter as ctk
 from typing import Callable, Optional, List, Dict, Any
 from .styles import Colors, Fonts, Dimensions
-from core.banner import get_tipo_descarga
+from core.banner import get_tipo_descarga, get_tipo_descarga_for_site
 
 
 class Card(ctk.CTkFrame):
@@ -759,7 +759,7 @@ class CenterCard(Card):
         cell_font_bold = (Fonts.FAMILY, 11, "bold")
 
         for row_idx, truck in enumerate(sorted_trucks):
-            tipo = get_tipo_descarga(truck.company)
+            tipo = get_tipo_descarga_for_site(truck.company, self.threshold_trasera, self.threshold_interna)
             tipo_short = {"LATERAL": "LAT", "TRASERA": "TRA", "INTERNA": "INT"}.get(tipo, "LAT")
             threshold_for_truck = self._get_truck_threshold(tipo)
             minutes = truck.time_in_plant_minutes

@@ -247,7 +247,11 @@ class MonitoringService:
                 self.sent_alerts[site_key] = now
 
             try:
-                center_status = analyze_trucks_for_banner(site.name, all_trucks, threshold)
+                center_status = analyze_trucks_for_banner(
+                    site.name, all_trucks, threshold,
+                    umbral_trasera=site.umbral_minutes_trasera,
+                    umbral_interna=site.umbral_minutes_interna,
+                )
                 banner_path = make_banner_png(center_status)
                 summary_message = format_banner_summary_message(center_status)
 
@@ -313,7 +317,11 @@ class MonitoringService:
                     continue
 
                 threshold = site.umbral_minutes_lateral or site.umbral_minutes or 60
-                center_status = analyze_trucks_for_banner(site.name, trucks, threshold)
+                center_status = analyze_trucks_for_banner(
+                    site.name, trucks, threshold,
+                    umbral_trasera=site.umbral_minutes_trasera,
+                    umbral_interna=site.umbral_minutes_interna,
+                )
                 banner_path = make_banner_png(center_status)
                 summary_message = format_banner_summary_message(center_status)
 

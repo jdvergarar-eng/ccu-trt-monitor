@@ -684,7 +684,11 @@ class Dashboard(ctk.CTkFrame):
 
             try:
                 # Analizar camiones y generar banner
-                center_status = analyze_trucks_for_banner(site.name, all_trucks, threshold)
+                center_status = analyze_trucks_for_banner(
+                    site.name, all_trucks, threshold,
+                    umbral_trasera=site.umbral_minutes_trasera,
+                    umbral_interna=site.umbral_minutes_interna,
+                )
 
                 # Generar imagen del banner
                 banner_path = make_banner_png(center_status)
