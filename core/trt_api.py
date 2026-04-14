@@ -1,9 +1,96 @@
 # TRT API Client - Obtiene datos del sistema TRT
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 import re
+import time
+import threading
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# =============================================================================
+# AUTENTICACION CCCSafe API
+# =============================================================================
+
+class AuthManager:
+    """Gestiona el JWT de CCCSafe: login inicial y refresh automatico."""
+
+    _AUTH_BASE = "https://www.cccsafe.cl/api/auth"
+    ANON_KEY = (
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+        ".eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVrenNkeHhnZ3N4cnFqbmt0amJtIiwi"
+        "cm9sZSI6ImFub24iLCJpYXQiOjE3NDU0NzQ0MDAsImV4cCI6MjA2MTA1MDQwMH0"
+        ".KBjMBKwstZFBOjJ2KhHWqtGj_d5Z-znTUQfFDWRY0ao"
+    )
+
+    def __init__(self, email: str, password: str):
+        self.email = email
+        self.password = password
+        self._access_token: Optional[str] = None
+        self._refresh_token: Optional[str] = None
+        self._expires_at: float = 0.0
+        self._lock = threading.Lock()
+
+    def _do_login(self) -> None:
+        r = requests.post(
+            f"{self._AUTH_BASE}/sign-in",
+            json={"email": self.email, "password": self.password},
+            timeout=15, verify=False,
+        )
+        r.raise_for_status()
+        self._store(r.json())
+
+    def _do_refresh(self) -> None:
+        r = requests.post(
+            f"{self._AUTH_BASE}/refresh",
+            json={"refresh_token": self._refresh_token},
+            timeout=15, verify=False,
+        )
+        if r.status_code >= 400:
+            self._do_login()
+            return
+        self._store(r.json())
+
+    def _store(self, data: dict) -> None:
+        self._access_token = data["access_token"]
+        self._refresh_token = data["refresh_token"]
+        expires_in = data.get("expires_in", 3600)
+        self._expires_at = time.time() + expires_in - 120
+
+    def get_token(self) -> str:
+        with self._lock:
+            if self._access_token is None:
+                self._do_login()
+            elif time.time() >= self._expires_at:
+                self._do_refresh()
+            return self._access_token
+
+    def headers(self) -> dict:
+        return {
+            "apikey": self.ANON_KEY,
+            "Authorization": f"Bearer {self.get_token()}",
+            "accept-profile": "public",
+        }
+
+
+_API_DATA_URL = "https://www.cccsafe.cl/api/supabase/rest/v1/movimientos"
+_SANTIAGO_TZ = ZoneInfo("America/Santiago")
+
+
+def _ventana_utc():
+    now_utc = datetime.now(timezone.utc)
+    start = now_utc.replace(hour=4, minute=0, second=0, microsecond=0)
+    if now_utc.hour < 4:
+        start -= timedelta(days=1)
+    end = start + timedelta(hours=23, minutes=59, seconds=59, microseconds=999000)
+    return (
+        start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        end.strftime("%Y-%m-%dT%H:%M:%S.999Z"),
+    )
 
 
 @dataclass
@@ -76,8 +163,9 @@ def _find_plant_table(soup):
 class TRTClient:
     """Cliente para el sistema TRT"""
 
-    def __init__(self, base_url: str = "http://192.168.55.79"):
+    def __init__(self, base_url: str = "http://192.168.55.79", auth: AuthManager = None):
         self.base_url = base_url.rstrip("/")
+        self.auth = auth
         self.session = requests.Session()
         self.session.headers.update({
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -348,13 +436,78 @@ class TRTClient:
             print(f"Error obteniendo datos del centro {referer_id}: {e}")
             return None
 
+    def _fetch_trucks_from_api(self, site_config: dict) -> List[TruckInPlant]:
+        """Obtiene camiones en planta via API REST CCCSafe."""
+        inicio, fin = _ventana_utc()
+        params = [
+            ("select", "id,placa,movement_type,gate_nombre,fecha_evento,"
+                       "ac_travel_id,conductor_empresa"),
+            ("fecha_evento", f"gte.{inicio}"),
+            ("fecha_evento", f"lte.{fin}"),
+            ("order", "fecha_evento.asc"),
+            ("status", "eq.acarreo"),
+            ("centro_id", f"eq.{site_config['centro_id']}"),
+        ]
+        r = requests.get(
+            _API_DATA_URL, params=params, headers=self.auth.headers(), timeout=15, verify=False
+        )
+        r.raise_for_status()
+        eventos = r.json()
+
+        # Agrupar por patente — fuente de verdad para saber si el camion esta en planta.
+        # Usar ac_travel_id causaba falsos positivos cuando el evento OUT tenia
+        # un travel_id distinto (o null) al evento IN del mismo camion.
+        por_placa: Dict[str, list] = {}
+        for ev in eventos:
+            por_placa.setdefault(ev["placa"], []).append(ev)
+
+        ahora_utc = datetime.now(timezone.utc)
+        trucks = []
+        for placa, evs in por_placa.items():
+            ultimo = evs[-1]  # eventos ya vienen ordenados asc
+            mt = (ultimo.get("movement_type") or "").upper()
+            if mt != "IN":
+                continue
+
+            fecha_ev = datetime.fromisoformat(ultimo["fecha_evento"])
+            tiempo = ahora_utc - fecha_ev
+            total_s = int(tiempo.total_seconds())
+            total_m = total_s // 60
+            dias, rem = divmod(total_s, 86400)
+            hh, mm, ss = rem // 3600, (rem % 3600) // 60, rem % 60
+            tiempo_str = f"{dias} dias {hh:02d}:{mm:02d}:{ss:02d}"
+
+            try:
+                fecha_utc = datetime.fromisoformat(ultimo["fecha_evento"])
+                fecha_local = fecha_utc.astimezone(_SANTIAGO_TZ)
+                arrival_display = fecha_local.strftime("%H:%M")
+            except Exception:
+                arrival_display = ""
+
+            trucks.append(TruckInPlant(
+                plate=placa,
+                company=ultimo.get("conductor_empresa") or "",
+                arrival_time=arrival_display,
+                time_in_plant=tiempo_str,
+                time_in_plant_minutes=total_m,
+                entry_type=ultimo.get("conductor_empresa") or "",
+            ))
+
+        return trucks
+
     def get_trucks_in_plant(self, site_config: dict) -> List[TruckInPlant]:
         """
         Obtiene los camiones actualmente en planta para un sitio.
+        Usa API CCCSafe si site_config tiene centro_id y el cliente tiene auth;
+        de lo contrario usa scraping HTML del servidor interno.
 
         Args:
             site_config: Diccionario con db_name, op_code, cd_code, referer_id
+                         y opcionalmente centro_id (activa API)
         """
+        if self.auth and site_config.get("centro_id"):
+            return self._fetch_trucks_from_api(site_config)
+
         trucks = []
 
         try:
@@ -520,9 +673,19 @@ class TRTClient:
 _trt_client: Optional[TRTClient] = None
 
 
-def get_trt_client(base_url: str = None) -> TRTClient:
-    """Obtiene la instancia global del TRTClient"""
+def get_trt_client(base_url: str = None, api_email: str = None, api_password: str = None) -> TRTClient:
+    """Obtiene la instancia global del TRTClient.
+    Si se pasan api_email y api_password, el cliente usará la API CCCSafe
+    para sitios con centro_id configurado.
+    """
     global _trt_client
-    if _trt_client is None or (base_url and _trt_client.base_url != base_url.rstrip("/")):
-        _trt_client = TRTClient(base_url or "http://192.168.55.79")
+    url = (base_url or "http://192.168.55.79").rstrip("/")
+    needs_new = (
+        _trt_client is None
+        or _trt_client.base_url != url
+        or (api_email and _trt_client.auth is None)
+    )
+    if needs_new:
+        auth = AuthManager(api_email, api_password) if api_email and api_password else None
+        _trt_client = TRTClient(url, auth=auth)
     return _trt_client

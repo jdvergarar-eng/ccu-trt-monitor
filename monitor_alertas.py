@@ -12,12 +12,13 @@ Si WHATSAPP_GROUP_ID no está configurado, se usa GROUP_ID como fallback.
 import time
 import re
 import requests
+import urllib3
 import json
 import threading
 import sys
 import types
 from bs4 import BeautifulSoup
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from dataclasses import dataclass, asdict
@@ -27,6 +28,8 @@ import os
 from zoneinfo import ZoneInfo
 import logging
 from logging.handlers import RotatingFileHandler
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =============================================================================
 # CONFIGURACION DE LOGGING ROTATIVO
@@ -122,6 +125,78 @@ MONITOR_API_PORT = PORTS["monitor_port"]
 TIMEZONE = ZoneInfo("America/Santiago")
 
 logger.info(f"Puertos configurados: Bot={PORTS['bot_port']}, Monitor={PORTS['monitor_port']}")
+
+# =============================================================================
+# AUTENTICACION CCCSafe API
+# =============================================================================
+
+class AuthManager:
+    """Gestiona el JWT de CCCSafe: login inicial y refresh automatico."""
+
+    _AUTH_BASE = "https://www.cccsafe.cl/api/auth"
+    # Clave anonima publica de Supabase — estatica, no caduca
+    ANON_KEY = (
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+        ".eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVrenNkeHhnZ3N4cnFqbmt0amJtIiwi"
+        "cm9sZSI6ImFub24iLCJpYXQiOjE3NDU0NzQ0MDAsImV4cCI6MjA2MTA1MDQwMH0"
+        ".KBjMBKwstZFBOjJ2KhHWqtGj_d5Z-znTUQfFDWRY0ao"
+    )
+
+    def __init__(self, email: str, password: str):
+        self.email = email
+        self.password = password
+        self._access_token: Optional[str] = None
+        self._refresh_token: Optional[str] = None
+        self._expires_at: float = 0.0  # epoch seconds
+        self._lock = threading.Lock()
+
+    def _do_login(self) -> None:
+        r = requests.post(
+            f"{self._AUTH_BASE}/sign-in",
+            json={"email": self.email, "password": self.password},
+            timeout=15,
+            verify=False,
+        )
+        r.raise_for_status()
+        self._store(r.json())
+        logger.info("AuthManager: login exitoso")
+
+    def _do_refresh(self) -> None:
+        r = requests.post(
+            f"{self._AUTH_BASE}/refresh",
+            json={"refresh_token": self._refresh_token},
+            timeout=15,
+            verify=False,
+        )
+        if r.status_code >= 400:
+            logger.warning("AuthManager: refresh fallido, re-login...")
+            self._do_login()
+            return
+        self._store(r.json())
+        logger.info("AuthManager: token refrescado")
+
+    def _store(self, data: dict) -> None:
+        self._access_token = data["access_token"]
+        self._refresh_token = data["refresh_token"]
+        expires_in = data.get("expires_in", 3600)
+        self._expires_at = time.time() + expires_in - 120  # 2 min de margen
+
+    def get_token(self) -> str:
+        """Devuelve access_token vigente, refrescando si esta por expirar."""
+        with self._lock:
+            if self._access_token is None:
+                self._do_login()
+            elif time.time() >= self._expires_at:
+                self._do_refresh()
+            return self._access_token
+
+    def headers(self) -> dict:
+        return {
+            "apikey": self.ANON_KEY,
+            "Authorization": f"Bearer {self.get_token()}",
+            "accept-profile": "public",
+        }
+
 
 # =============================================================================
 # ESTRUCTURAS DE DATOS
@@ -761,6 +836,8 @@ def load_config(config_file="config.txt"):
 
     config = {
         "base_url": None,
+        "api_email": "",
+        "api_password": "",
         "poll_seconds": None,
         "realert_minutes": None,
         "sites": []
@@ -780,11 +857,14 @@ def load_config(config_file="config.txt"):
             key, value = key.strip(), value.strip()
 
             if key == "BASE_URL": config["base_url"] = value
+            elif key == "API_EMAIL": config["api_email"] = value
+            elif key == "API_PASSWORD": config["api_password"] = value
             elif key == "POLL_SECONDS": config["poll_seconds"] = int(value)
             elif key == "REALERT_MINUTES": config["realert_minutes"] = int(value)
             elif key == "SITE_NAME": current_site["name"] = value
             elif key == "GROUP_ID": current_site["group_id"] = value
             elif key == "WHATSAPP_GROUP_ID": current_site["whatsapp_group_id"] = value
+            elif key == "CENTRO_ID": current_site["centro_id"] = int(value)
             elif key == "UMBRAL_MINUTES": current_site["umbral_minutes"] = int(value)
             elif key == "UMBRAL_MINUTES_LATERAL": current_site["umbral_minutes_lateral"] = int(value)
             elif key == "UMBRAL_MINUTES_TRASERA": current_site["umbral_minutes_trasera"] = int(value)
@@ -824,6 +904,12 @@ if CONFIG:
 else:
     logger.warning("No se encontro archivo de configuracion. Esperando...")
 
+# Instancia global de AuthManager para API CCCSafe (None si no hay credenciales)
+auth = None
+if CONFIG and CONFIG.get("api_email") and CONFIG.get("api_password"):
+    auth = AuthManager(CONFIG["api_email"], CONFIG["api_password"])
+    logger.info("Modo API CCCSafe activo para sitios con CENTRO_ID")
+
 
 # =============================================================================
 # HTTP SESSION
@@ -851,7 +937,7 @@ def get_tipo_descarga(empresa: str) -> str:
     empresa_upper = empresa.upper().strip()
     if "ROMANI" in empresa_upper or "LOGISTICA DEL NORTE" in empresa_upper:
         return "INTERNA"
-    if "TRANSPORTE INTERANDINOS" in empresa_upper or "TRANSPORTES INTERANDINOS" in empresa_upper:
+    if "INTERANDINOS" in empresa_upper:
         return "TRASERA"
     return "LATERAL"
 
@@ -945,6 +1031,89 @@ def _find_plant_table(soup):
 
     return None
 
+
+# =============================================================================
+# FUENTE DE DATOS: API REST CCCSafe v2
+# =============================================================================
+
+_API_DATA_URL = "https://www.cccsafe.cl/api/supabase/rest/v1/movimientos"
+
+
+def _ventana_utc() -> Tuple[str, str]:
+    """
+    Retorna (inicio, fin) ISO UTC para el dia operativo actual.
+    Dia operativo: 04:00 UTC hoy -> 03:59:59 UTC manana.
+    """
+    now_utc = datetime.now(timezone.utc)
+    start = now_utc.replace(hour=4, minute=0, second=0, microsecond=0)
+    if now_utc.hour < 4:
+        start -= timedelta(days=1)
+    end = start + timedelta(hours=23, minutes=59, seconds=59, microseconds=999000)
+    return (
+        start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        end.strftime("%Y-%m-%dT%H:%M:%S.999Z"),
+    )
+
+
+def fetch_camiones_en_planta(site: dict, auth: AuthManager) -> list:
+    """
+    Consulta la API REST de movimientos y devuelve lista de dicts con las
+    mismas claves que usaba parse_table_rows, para compatibilidad downstream.
+
+    Claves devueltas: "Patente", "Empresa", "Tipo de Ingreso", "Tiempo en Planta"
+    """
+    inicio, fin = _ventana_utc()
+    params = [
+        ("select", "id,placa,movement_type,fecha_evento,"
+                   "ac_travel_id,conductor_empresa"),
+        ("fecha_evento", f"gte.{inicio}"),
+        ("fecha_evento", f"lte.{fin}"),
+        ("order", "fecha_evento.asc"),
+        ("status", "eq.acarreo"),
+        ("centro_id", f"eq.{site['centro_id']}"),
+    ]
+    r = requests.get(_API_DATA_URL, params=params, headers=auth.headers(), timeout=15, verify=False)
+    r.raise_for_status()
+    eventos: list = r.json()
+
+    # Agrupar por patente — fuente de verdad para saber si el camion esta en planta.
+    # Usar ac_travel_id causaba falsos positivos cuando el evento OUT tenia
+    # un travel_id distinto (o null) al evento IN del mismo camion.
+    por_placa: Dict[str, list] = {}
+    for ev in eventos:
+        por_placa.setdefault(ev["placa"], []).append(ev)
+
+    ahora_utc = datetime.now(timezone.utc)
+    rows = []
+    for placa, evs in por_placa.items():
+        # Los eventos ya vienen ordenados asc; el ultimo es el mas reciente
+        ultimo = evs[-1]
+        mt = (ultimo.get("movement_type") or "").upper()
+        if mt != "IN":
+            continue  # ultimo movimiento fue salida -> no esta en planta
+
+        fecha_ev = datetime.fromisoformat(ultimo["fecha_evento"])
+        tiempo: timedelta = ahora_utc - fecha_ev
+
+        total_s = int(tiempo.total_seconds())
+        dias, rem = divmod(total_s, 86400)
+        horas, rem = divmod(rem, 3600)
+        mins, segs = divmod(rem, 60)
+        tiempo_str = f"{dias} dias {horas:02d}:{mins:02d}:{segs:02d}"
+
+        rows.append({
+            "Patente":          placa,
+            "Empresa":          ultimo.get("conductor_empresa") or "",
+            "Tipo de Ingreso":  ultimo.get("conductor_empresa") or "",
+            "Tiempo en Planta": tiempo_str,
+        })
+
+    return rows
+
+
+# =============================================================================
+# FUENTE DE DATOS: HTML scraping (servidor interno legacy)
+# =============================================================================
 
 def fetch_html_tabla(site: dict) -> str:
     url = f"{BASE_URL}/ces/home/inicio/"
@@ -1551,6 +1720,10 @@ from flask import Flask, jsonify
 
 api_app = Flask(__name__)
 
+# Cache de camiones en planta actualizado por el loop principal
+# {site_name: {patente: {empresa, tipo_descarga, minutos, tiempo_str}}}
+_live_trucks: Dict[str, dict] = {}
+
 import logging
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
@@ -1621,6 +1794,26 @@ def get_sites():
     return jsonify({
         "sites": [{"name": s["name"], "group_id": s.get("whatsapp_group_id") or s.get("group_id", "")} for s in CONFIG["sites"]]
     })
+
+
+@api_app.route('/trucks-live/<path:site_name>', methods=['GET'])
+def get_trucks_live(site_name):
+    """Devuelve lista de camiones en planta (datos del último poll del monitor)"""
+    # Normalizar nombre de sitio
+    site_key = None
+    for key in _live_trucks:
+        if key.lower().replace(" ", "_") == site_name.lower().replace(" ", "_"):
+            site_key = key
+            break
+        if key.lower() == site_name.lower():
+            site_key = key
+            break
+
+    if site_key is None:
+        return jsonify({"site": site_name, "trucks": [], "total": 0})
+
+    trucks_list = [info for info in _live_trucks[site_key].values()]
+    return jsonify({"site": site_key, "trucks": trucks_list, "total": len(trucks_list)})
 
 
 def run_api_server():
@@ -1739,8 +1932,11 @@ def main():
                 SUMMARY_MANAGER.check_and_reset_if_needed(site_name)
 
                 try:
-                    html = fetch_html_tabla(site)
-                    rows = parse_table_rows(html)
+                    if auth and site.get("centro_id"):
+                        rows = fetch_camiones_en_planta(site, auth)
+                    else:
+                        html = fetch_html_tabla(site)
+                        rows = parse_table_rows(html)
 
                     visible = set()
                     camiones_criticos = state[site_name]["camiones_criticos"]
@@ -1783,12 +1979,15 @@ def main():
                         empresa = (row.get("Empresa") or "").strip()
                         umbral = get_umbral_para_camion(site, empresa)
 
+                        tipo_ingreso = (row.get("Tipo de Ingreso") or "").strip()
+
                         # Trackear TODOS los camiones para el resumen
                         if patente not in camiones_en_planta:
                             camiones_en_planta[patente] = {
                                 "tiempo": t,
                                 "primera_deteccion": now,
                                 "empresa": empresa,
+                                "tipo_ingreso": tipo_ingreso,
                             }
                         else:
                             # Actualizar tiempo (siempre guardar el ultimo conocido)
@@ -1805,6 +2004,20 @@ def main():
                                 logger.info(f"[{site_name}] Camion {patente} critico ({fmt_td(t)})")
                             else:
                                 camiones_criticos[patente]["tiempo"] = t
+
+                    # Actualizar cache live para endpoint /trucks-live
+                    _live_trucks[site_name] = {
+                        p: {
+                            "patente": p,
+                            "empresa": info.get("empresa", ""),
+                            "tipo_descarga": get_tipo_descarga(info.get("empresa", "")),
+                            "tipo_ingreso": info.get("tipo_ingreso", ""),
+                            "minutos": int(info["tiempo"].total_seconds() / 60),
+                            "tiempo_str": fmt_td(info["tiempo"]),
+                        }
+                        for p, info in camiones_en_planta.items()
+                        if p in visible
+                    }
 
                     # Detectar camiones despachados (desaparecieron de la tabla)
                     for patente in list(camiones_en_planta.keys()):

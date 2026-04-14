@@ -192,6 +192,7 @@ class MonitoringService:
                     "db_name": site.db_name,
                     "op_code": site.op_code,
                     "cd_code": site.cd_code,
+                    "centro_id": site.centro_id,
                 }
                 stats = self.trt_client.get_center_stats(site_config)
 
@@ -309,6 +310,7 @@ class MonitoringService:
                     "db_name": site.db_name,
                     "op_code": site.op_code,
                     "cd_code": site.cd_code,
+                    "centro_id": site.centro_id,
                 }
                 stats = self.trt_client.get_center_stats(site_config)
                 trucks = stats.get("trucks", [])
@@ -406,7 +408,12 @@ def get_monitoring_service(config_manager: ConfigManager = None,
             from . import get_config_manager, get_trt_client, get_whatsapp_client
             config_manager = get_config_manager()
             try:
-                trt_client = get_trt_client(config_manager.config.base_url)
+                cfg = config_manager.config
+                trt_client = get_trt_client(
+                    cfg.base_url,
+                    api_email=cfg.api_email,
+                    api_password=cfg.api_password,
+                )
             except Exception:
                 trt_client = None
             try:

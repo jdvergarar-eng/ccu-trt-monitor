@@ -108,6 +108,8 @@ function loadConfigFile(configPath = 'config.txt') {
                 if (keyTrim === 'BASE_URL') config.baseUrl = value;
                 else if (keyTrim === 'POLL_SECONDS') config.pollSeconds = parseInt(value);
                 else if (keyTrim === 'REALERT_MINUTES') config.realertMinutes = parseInt(value);
+                else if (keyTrim === 'API_EMAIL') config.apiEmail = value;
+                else if (keyTrim === 'API_PASSWORD') config.apiPassword = value;
                 else if (keyTrim === 'SITE_NAME') currentSite.name = value;
                 else if (keyTrim === 'GROUP_ID') currentSite.groupId = value;
                 else if (keyTrim === 'UMBRAL_MINUTES') currentSite.umbral = parseInt(value);
@@ -119,6 +121,8 @@ function loadConfigFile(configPath = 'config.txt') {
                 else if (keyTrim === 'CD_CODE') currentSite.cd = value;
                 else if (keyTrim === 'REFERER_ID') currentSite.refererId = value;
                 else if (keyTrim === 'WHATSAPP_GROUP_ID') currentSite.whatsappGroupId = value;
+                else if (keyTrim === 'CENTRO_ID') currentSite.centroId = parseInt(value);
+                else if (keyTrim === 'CENTRO_NOMBRE') currentSite.centroNombre = value;
             }
         }
         
@@ -368,9 +372,11 @@ client.on('message_create', async (message) => {
             return;
         }
     } else if (!isBotMentioned) {
-        return;
+        // Permitir comandos directos desde grupos configurados (sin necesidad de @bot)
+        const isConfiguredGroup = SITES_CONFIG.sites.some(s => s.whatsappGroupId === message.from);
+        if (!isConfiguredGroup) return;
     }
-    
+
     const text = message.body.toLowerCase();
     
     // Verificar comando resumen (tiene prioridad)
@@ -525,7 +531,23 @@ async function handleStatusCommand(message) {
             return;
         }
 
-        // Obtener datos del sitio
+        // Para sitios con CCCSafe (centroId configurado): screenshot CCCSafe + resumen de texto
+        if (site.centroId) {
+            const [screenshotPath, msg] = await Promise.all([
+                takeCCCSafeScreenshot(site),
+                getStatusFromLiveMonitor(site),
+            ]);
+            if (screenshotPath) {
+                const media = MessageMedia.fromFilePath(screenshotPath);
+                await client.sendMessage(groupId, media, { sendSeen: false, caption: msg });
+                try { fs.unlinkSync(screenshotPath); } catch(e) {}
+            } else {
+                await client.sendMessage(groupId, msg, { sendSeen: false });
+            }
+            return;
+        }
+
+        // Sitio legacy (sin centroId): comportamiento original - scraping + screenshot
         const statusData = await getStatusFromMonitor(siteId);
 
         // Tomar screenshot
@@ -547,6 +569,57 @@ async function handleStatusCommand(message) {
         } catch (e) {}
     }
 }
+
+async function getStatusFromLiveMonitor(site) {
+    try {
+        const monitorUrl = `http://localhost:${CONFIG.monitorApiPort}/trucks-live/${encodeURIComponent(site.name)}`;
+        const resp = await axios.get(monitorUrl, { timeout: 5000 });
+        const data = resp.data;
+
+        const now = new Date();
+        const timeStr = now.toTimeString().split(' ')[0];
+
+        let nGreen = 0, nYellow = 0, nRed = 0;
+        const topLines = [];
+
+        for (const t of data.trucks) {
+            const minutos = t.minutos;
+            let umbral;
+            if (t.tipo_descarga === 'INTERNA') {
+                umbral = site.umbralInterna || site.umbralLateral || 60;
+            } else if (t.tipo_descarga === 'TRASERA') {
+                umbral = site.umbralTrasera || 60;
+            } else {
+                umbral = site.umbralLateral || 60;
+            }
+
+            if (minutos < umbral * 0.8) {
+                nGreen++;
+            } else if (minutos < umbral * 1.3) {
+                nYellow++;
+            } else {
+                nRed++;
+                const tipo = t.tipo_descarga ? t.tipo_descarga.substring(0, 3) : 'LAT';
+                topLines.push(`${topLines.length + 1}. ${t.patente} | ${tipo} | ${t.empresa} | ${t.tiempo_str}`);
+            }
+        }
+
+        let msg = `*${site.name}*\n_Actualización: ${timeStr}_\n\n`;
+        msg += `En planta: *${data.total}* camiones\n`;
+        msg += `A tiempo: ${nGreen} | En riesgo: ${nYellow} | Críticos: ${nRed}`;
+        if (topLines.length > 0) {
+            msg += `\n\n*TOP CAMIONES ATRASADOS:*\n${topLines.join('\n')}`;
+        }
+        return msg;
+
+    } catch (error) {
+        console.error('[STATUS-LIVE] Error:', error.message);
+        const now = new Date();
+        const timeStr = now.toTimeString().split(' ')[0];
+        return `*${site.name}*\n_Actualización: ${timeStr}_\n\n_Error obteniendo datos del monitor_`;
+    }
+}
+
 
 async function getStatusFromMonitor(siteId) {
     // Buscar sitio en la configuracion cargada de config.txt
@@ -769,6 +842,85 @@ async function handlePizarraCommand(message) {
 // =============================================================================
 // SCREENSHOT CON PUPPETEER (reutiliza el de WhatsApp)
 // =============================================================================
+
+async function takeCCCSafeScreenshot(site) {
+    const TRUCKS_URL = 'https://www.cccsafe.cl/camiones-planta';
+    const screenshotPath = path.join(CONFIG.tempDir, `cccsafe_${Date.now()}.png`);
+    const apiEmail = SITES_CONFIG.apiEmail || '';
+    const apiPassword = SITES_CONFIG.apiPassword || '';
+    // centro_nombre que usará CCCSafe para filtrar (extraído de CD_CODE/name)
+    const centroCodigo = site.centroNombre || 'STGOSUR';
+
+    try {
+        const browser = await client.pupPage.browser();
+        const page = await browser.newPage();
+        await page.setViewport({ width: 1920, height: 1080 });
+
+        // 1. Navegar a la página de camiones
+        await page.goto(TRUCKS_URL, { waitUntil: 'networkidle2', timeout: 20000 });
+
+        // 2. Si redirigió a login, autenticar
+        if (page.url().includes('login') || page.url().includes('auth') || page.url().includes('signin')) {
+            console.log('[CCCSAFE] Autenticando...');
+            await new Promise(r => setTimeout(r, 1500));
+            // El campo email tiene type="text" en CCCSafe, buscar por name
+            const emailEl = await page.$('input[name="email"]') || await page.$('input[type="email"]');
+            const passEl  = await page.$('input[type="password"]');
+            if (!emailEl || !passEl) throw new Error('Campos de login no encontrados');
+            await emailEl.click({ clickCount: 3 });
+            await emailEl.type(apiEmail);
+            await passEl.click({ clickCount: 3 });
+            await passEl.type(apiPassword);
+            await page.click('button[type="submit"]');
+            await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 });
+        }
+
+        // Siempre navegar a camiones-planta (el login redirige a /acarreo)
+        if (!page.url().includes('camiones-planta')) {
+            await page.goto(TRUCKS_URL, { waitUntil: 'networkidle2', timeout: 20000 });
+        }
+
+        // 3. Seleccionar STGOSUR en el SEGUNDO combobox (MUI Autocomplete)
+        await new Promise(r => setTimeout(r, 2000));
+        let selected = false;
+
+        try {
+            const comboboxes = await page.$$('input[role="combobox"]');
+            // Hay dos comboboxes; el segundo es el de "interior planta"
+            const targetIndex = comboboxes.length >= 2 ? 1 : 0;
+            const targetInput = comboboxes[targetIndex];
+            await targetInput.click({ clickCount: 3 });
+            await targetInput.type(centroCodigo);
+            await new Promise(r => setTimeout(r, 1200));
+
+            // Esperar listbox MUI y hacer click en la opción que contiene el texto
+            selected = await page.evaluate((texto) => {
+                const opts = document.querySelectorAll('[role="option"]');
+                for (const opt of opts) {
+                    if (opt.textContent.trim().toUpperCase().includes(texto.toUpperCase())) {
+                        opt.click();
+                        return true;
+                    }
+                }
+                return false;
+            }, centroCodigo);
+        } catch(e) {
+            console.error('[CCCSAFE] Error seleccionando centro:', e.message);
+        }
+
+        // 4. Esperar que cargue la tabla
+        await new Promise(r => setTimeout(r, 3000));
+        await page.screenshot({ path: screenshotPath });
+        await page.close();
+        console.log('[CCCSAFE] Screenshot tomado:', screenshotPath);
+        return screenshotPath;
+
+    } catch (error) {
+        console.error('[CCCSAFE-SCREENSHOT] Error:', error.message);
+        return null;
+    }
+}
+
 
 async function takeScreenshot(siteId) {
     const url = `${CONFIG.trtBaseUrl}/ces/home/registro/${siteId}`;

@@ -87,7 +87,7 @@ def get_tipo_descarga(empresa: str) -> str:
     empresa_upper = empresa.upper().strip()
     if "ROMANI" in empresa_upper or "LOGISTICA DEL NORTE" in empresa_upper:
         return "INTERNA"
-    if "TRANSPORTE INTERANDINOS" in empresa_upper or "TRANSPORTES INTERANDINOS" in empresa_upper:
+    if "INTERANDINOS" in empresa_upper:
         return "TRASERA"
     return "LATERAL"
 

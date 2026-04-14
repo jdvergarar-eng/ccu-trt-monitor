@@ -16,6 +16,7 @@ class SiteConfig:
     cd_code: str
     group_id: str = ""
     whatsapp_group_id: str = ""
+    centro_id: int = 0  # ID en CCCSafe API (0 = no configurado, usa scraping HTML)
     umbral_minutes_lateral: int = 0
     umbral_minutes_trasera: int = 0
     umbral_minutes_interna: int = 0
@@ -28,6 +29,8 @@ class SiteConfig:
 class AppConfig:
     """Configuracion general de la aplicacion"""
     base_url: str = "http://192.168.55.79"
+    api_email: str = ""       # Credencial CCCSafe API
+    api_password: str = ""    # Credencial CCCSafe API
     poll_seconds: int = 10
     realert_minutes: int = 30
     sites: List[SiteConfig] = field(default_factory=list)
@@ -84,6 +87,10 @@ class ConfigManager:
 
                     if key == "BASE_URL":
                         config.base_url = value
+                    elif key == "API_EMAIL":
+                        config.api_email = value
+                    elif key == "API_PASSWORD":
+                        config.api_password = value
                     elif key == "POLL_SECONDS":
                         config.poll_seconds = int(value)
                     elif key == "REALERT_MINUTES":
@@ -94,6 +101,8 @@ class ConfigManager:
                         current_site["group_id"] = value
                     elif key == "WHATSAPP_GROUP_ID":
                         current_site["whatsapp_group_id"] = value
+                    elif key == "CENTRO_ID":
+                        current_site["centro_id"] = int(value)
                     elif key == "UMBRAL_MINUTES":
                         current_site["umbral_minutes"] = int(value)
                     elif key == "UMBRAL_MINUTES_LATERAL":
@@ -132,6 +141,7 @@ class ConfigManager:
             cd_code=d.get("cd_code", ""),
             group_id=d.get("group_id", ""),
             whatsapp_group_id=d.get("whatsapp_group_id", ""),
+            centro_id=int(d.get("centro_id", 0)),
             umbral_minutes_lateral=d.get("umbral_minutes_lateral", 0),
             umbral_minutes_trasera=d.get("umbral_minutes_trasera", 0),
             umbral_minutes_interna=d.get("umbral_minutes_interna", 0),
@@ -160,6 +170,10 @@ class ConfigManager:
         lines.append("# CONFIGURACION GENERAL")
         lines.append("# ===========================================")
         lines.append(f"BASE_URL={config.base_url}")
+        if config.api_email:
+            lines.append(f"API_EMAIL={config.api_email}")
+        if config.api_password:
+            lines.append(f"API_PASSWORD={config.api_password}")
         lines.append(f"POLL_SECONDS={config.poll_seconds}")
         lines.append(f"REALERT_MINUTES={config.realert_minutes}")
         lines.append("")
@@ -178,6 +192,8 @@ class ConfigManager:
                 lines.append(f"GROUP_ID={site.group_id}")
             if site.whatsapp_group_id:
                 lines.append(f"WHATSAPP_GROUP_ID={site.whatsapp_group_id}")
+            if site.centro_id:
+                lines.append(f"CENTRO_ID={site.centro_id}")
 
             # Umbrales
             if site.umbral_minutes > 0:

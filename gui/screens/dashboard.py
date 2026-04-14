@@ -65,7 +65,11 @@ class Dashboard(ctk.CTkFrame):
         self.config = self.config_manager.config
         if self.config.base_url:
             try:
-                self.trt_client = get_trt_client(self.config.base_url)
+                self.trt_client = get_trt_client(
+                    self.config.base_url,
+                    api_email=self.config.api_email,
+                    api_password=self.config.api_password,
+                )
             except Exception as e:
                 print(f"Error inicializando cliente TRT: {e}")
                 self.trt_client = None
@@ -825,6 +829,7 @@ class Dashboard(ctk.CTkFrame):
                         "db_name": site.db_name,
                         "op_code": site.op_code,
                         "cd_code": site.cd_code,
+                        "centro_id": site.centro_id,
                     }
                     stats = self.trt_client.get_center_stats(site_config)
 
