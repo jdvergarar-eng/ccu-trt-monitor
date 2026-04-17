@@ -1076,21 +1076,53 @@ def fetch_camiones_en_planta(site: dict, auth: AuthManager) -> list:
     r.raise_for_status()
     eventos: list = r.json()
 
-    # Agrupar por patente — fuente de verdad para saber si el camion esta en planta.
-    # Usar ac_travel_id causaba falsos positivos cuando el evento OUT tenia
-    # un travel_id distinto (o null) al evento IN del mismo camion.
+    # Doble criterio (intersección) para determinar si un camión está en planta:
+    #
+    # 1. Por placa: el último evento de este camión (cualquier viaje) es IN.
+    # 2. Por ac_travel_id: el último evento del viaje activo también es IN.
+    #
+    # Esto maneja dos tipos de datos inconsistentes que ocurren en Safecard:
+    #  a) OUT registrado bajo una patente distinta en el mismo viaje → el viaje
+    #     muestra OUT pero la placa muestra IN; la intersección lo descarta.
+    #  b) Viajes antiguos con IN huérfano de un camión que ya salió → la placa
+    #     muestra OUT (su última actividad real), la intersección lo descarta.
+
+    # Criterio 1: agrupar por placa
     por_placa: Dict[str, list] = {}
     for ev in eventos:
-        por_placa.setdefault(ev["placa"], []).append(ev)
+        p = (ev.get("placa") or "").strip()
+        if p:
+            por_placa.setdefault(p, []).append(ev)
+
+    in_plant_by_placa: set = {
+        p for p, evs in por_placa.items()
+        if (evs[-1].get("movement_type") or "").upper() == "IN"
+    }
+
+    # Criterio 2: agrupar por ac_travel_id
+    por_travel: Dict[int, list] = {}
+    for ev in eventos:
+        travel_id = ev.get("ac_travel_id")
+        if travel_id is None:
+            continue
+        por_travel.setdefault(travel_id, []).append(ev)
+
+    in_plant_by_travel: set = set()
+    for travel_id, evs in por_travel.items():
+        ultimo = evs[-1]
+        if (ultimo.get("movement_type") or "").upper() == "IN":
+            placa = (ultimo.get("placa") or "").strip()
+            if placa:
+                in_plant_by_travel.add(placa)
+
+    # Solo camiones que cumplen AMBOS criterios
+    in_plant_plates = in_plant_by_placa & in_plant_by_travel
 
     ahora_utc = datetime.now(timezone.utc)
     rows = []
-    for placa, evs in por_placa.items():
-        # Los eventos ya vienen ordenados asc; el ultimo es el mas reciente
-        ultimo = evs[-1]
-        mt = (ultimo.get("movement_type") or "").upper()
-        if mt != "IN":
-            continue  # ultimo movimiento fue salida -> no esta en planta
+    for placa in in_plant_plates:
+        evs = por_placa[placa]
+        ultimo = evs[-1]  # es IN por criterio 1
 
         fecha_ev = datetime.fromisoformat(ultimo["fecha_evento"])
         tiempo: timedelta = ahora_utc - fecha_ev
